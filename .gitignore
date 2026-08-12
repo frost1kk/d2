@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.python-version
+
+# Тесты / покрытие
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Отладка и рантайм-артефакты
+debug/*.png
+debug/*.jpg
+debug/*.mp4
+*.log
+
+# Кадры-ассеты крупного размера (храним осознанно; раскомментируй при необходимости)
+# assets/frames/*.png
+
+# IDE / ОС
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+.DS_Store
