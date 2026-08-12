@@ -13,6 +13,38 @@ STAY = 0
 RIGHT = 1
 
 
+def select_target(
+    boot: tuple[float, float] | None,
+    vy: float | None,
+    predicted_x: float | None,
+    blocks_line_y: float,
+    max_shift: float = float("inf"),
+) -> float | None:
+    """Выбрать целевую x для платформы по двухрежимной стратегии.
+
+    - Сапог не виден → None (держим позицию, вслепую не дёргаем).
+    - Сапог в открытой нижней зоне (y ≥ линия блоков) и падает (vy > 0), есть предсказание
+      → целимся в **точку падения** (точный прицел, отскоки только от стенок предсказуемы).
+    - Иначе (сапог вверху среди блоков — рикошет непредсказуем) → **следуем за x сапога**.
+
+    Предохранитель `max_shift`: если предсказание уводит дальше max_shift от текущего x
+    сапога (спуск почти вертикален — далёкий прыжок = выброс скорости), игнорируем его и
+    следуем за сапогом. Защищает от рывков тележки на шумной скорости.
+    """
+    if boot is None:
+        return None
+    x, y = boot
+    if (
+        y >= blocks_line_y
+        and vy is not None
+        and vy > 0
+        and predicted_x is not None
+        and abs(predicted_x - x) <= max_shift
+    ):
+        return predicted_x
+    return x
+
+
 def decide_direction(platform_x: float, target_x: float | None, deadzone: float) -> int:
     """Направление движения платформы к target_x с гистерезисом deadzone.
 

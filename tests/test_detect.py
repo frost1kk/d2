@@ -48,7 +48,8 @@ class TestInflightFrame:
         field = detect.detect_field(frame)
         cart = detect.detect_cart(frame, field)
         assert cart is not None
-        assert abs(cart.x - 988) <= 40
+        # Центр по бирюзовому «стеклу» тележки (~истинный центр 960), не по красному баннеру.
+        assert abs(cart.x - 960) <= 20
         assert cart.y > 850  # в нижней полосе поля
 
 

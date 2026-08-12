@@ -36,6 +36,10 @@ class FieldROI:
     def width(self) -> int:
         return self.right - self.left
 
+    @property
+    def center_x(self) -> float:
+        return (self.left + self.right) / 2
+
 
 @dataclass(frozen=True)
 class Detection:
@@ -75,6 +79,19 @@ def _cart_band_top(frame: np.ndarray, field: FieldROI) -> int:
     return max(field.top, _scale_y(config.CART_BAND_TOP_PX, h))
 
 
+def blocks_line_y(frame: np.ndarray) -> int:
+    """Линия блоков в пикселях кадра (ниже — открытая зона чистого спуска)."""
+    return _scale_y(config.BLOCKS_LINE_PX, frame.shape[0])
+
+
+def _mask_centroid(mask: np.ndarray, min_pixels: int) -> Detection | None:
+    """Центроид ВСЕХ ненулевых пикселей маски (для раздробленных объектов, напр. стекло)."""
+    ys, xs = np.nonzero(mask)
+    if len(xs) < min_pixels:
+        return None
+    return Detection(x=float(xs.mean()), y=float(ys.mean()), area=float(len(xs)))
+
+
 def _largest_blob(mask: np.ndarray, min_area: float) -> Detection | None:
     """Центр крупнейшего контура в маске, если его площадь >= min_area."""
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -91,15 +108,23 @@ def _largest_blob(mask: np.ndarray, min_area: float) -> Detection | None:
 
 
 def detect_cart(frame_bgr: np.ndarray, field: FieldROI) -> Detection | None:
-    """Тележка по красному баннеру в нижней полосе поля. Координаты — в кадре."""
+    """Центр тележки в нижней полосе поля. Координаты — в кадре.
+
+    Основной признак — бирюзовое «стекло» тележки (симметрично, центроид ≈ центр тележки).
+    Если стекло не найдено (редко) — резерв по красному баннеру (смещён на ~+30 px).
+    """
     band_top = _cart_band_top(frame_bgr, field)
     roi = frame_bgr[band_top:field.bottom, field.left:field.right]
     if roi.size == 0:
         return None
     hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-    mask = cv2.inRange(hsv, np.array(config.CART_RED_LOW_1), np.array(config.CART_RED_HIGH_1))
-    mask |= cv2.inRange(hsv, np.array(config.CART_RED_LOW_2), np.array(config.CART_RED_HIGH_2))
-    det = _largest_blob(mask, config.MIN_CART_AREA)
+
+    glass = cv2.inRange(hsv, np.array(config.BOOT_TEAL_LOW), np.array(config.BOOT_TEAL_HIGH))
+    det = _mask_centroid(glass, config.MIN_CART_GLASS_AREA)
+    if det is None:
+        red = cv2.inRange(hsv, np.array(config.CART_RED_LOW_1), np.array(config.CART_RED_HIGH_1))
+        red |= cv2.inRange(hsv, np.array(config.CART_RED_LOW_2), np.array(config.CART_RED_HIGH_2))
+        det = _largest_blob(red, config.MIN_CART_AREA)
     if det is None:
         return None
     return Detection(x=det.x + field.left, y=det.y + band_top, area=det.area)

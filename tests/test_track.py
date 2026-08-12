@@ -102,3 +102,12 @@ class TestBootTracker:
         t.update((300, 200))
         t.reset()
         assert t.predict() is None
+
+    def test_vy_and_last_properties(self):
+        t = BootTracker(x_left=0, x_right=600, y_platform=800)
+        assert t.vy is None and t.last is None
+        t.update((300, 100))
+        assert t.last == (300, 100) and t.vy is None  # скорость ещё не определена
+        t.update((310, 130))
+        assert t.last == (310, 130)
+        assert t.vy == 30  # 130 - 100

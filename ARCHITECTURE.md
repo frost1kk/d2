@@ -7,7 +7,7 @@ flowchart LR
     A[capture.py<br/>dxcam-грабинг региона] --> B[detect.py<br/>поле / тележка / сапог]
     B --> C[track.py<br/>скорость + предсказание точки]
     C --> D[control.py<br/>направление + гистерезис]
-    D --> E[input.py<br/>pydirectinput / SendInput]
+    D --> E[input.py<br/>A/D · pydirectinput]
     E -->|двигает платформу| G((Игра))
     G -->|новый кадр| A
     K[main.py<br/>цикл + kill-switch] -.оркеструет.- A & B & C & D & E
@@ -22,8 +22,8 @@ flowchart LR
 | `detect` | Координаты поля/тележки/сапога | cv2, numpy | реальные кадры (`assets/frames/`) |
 | `track` | Скорость сапога, предсказание точки падения | — (чистый Python) | **юнит-тесты** |
 | `control` | Решение «влево/стоять/вправо» | — (чистый Python) | **юнит-тесты** |
-| `input` | Эмуляция ввода в игру | pydirectinput | live |
-| `main` | Управляющий цикл, kill-switch, замер latency | все выше | live |
+| `input` | Эмуляция ввода в игру (A/D + пробел) | pydirectinput | live |
+| `main` | Конечный автомат (SETUP/PLAYING), стартовая секвенция, kill-switch, latency | все выше | live |
 
 **Принцип разделения:** `track`/`control` — чистая логика без OpenCV/ввода, поэтому
 проверяются юнит-тестами без запущенной игры (§3 CLAUDE.md). Тяжёлые/побочные модули

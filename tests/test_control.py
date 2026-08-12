@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from src.control import LEFT, RIGHT, STAY, Controller, decide_direction
+from src.control import LEFT, RIGHT, STAY, Controller, decide_direction, select_target
 
 
 class TestDecideDirection:
@@ -33,3 +33,33 @@ class TestController:
         assert c.decide(200, 100) == LEFT
         assert c.decide(100, 102) == STAY
         assert c.decide(100, None) == STAY
+
+
+class TestSelectTarget:
+    BLOCKS = 640
+
+    def test_no_boot_returns_none(self):
+        assert select_target(None, vy=5, predicted_x=500, blocks_line_y=self.BLOCKS) is None
+
+    def test_below_line_descending_uses_prediction(self):
+        # сапог в нижней зоне и падает → целимся в предсказанную точку падения
+        got = select_target((900, 700), vy=10, predicted_x=512, blocks_line_y=self.BLOCKS)
+        assert got == 512
+
+    def test_above_line_follows_boot_x(self):
+        # сапог вверху среди блоков → следуем за его x, а не за (шумным) предсказанием
+        got = select_target((900, 300), vy=10, predicted_x=512, blocks_line_y=self.BLOCKS)
+        assert got == 900
+
+    def test_below_line_but_ascending_follows_boot_x(self):
+        # ниже линии, но летит вверх (vy<0) — предсказания точки падения нет → следуем
+        got = select_target((900, 700), vy=-10, predicted_x=512, blocks_line_y=self.BLOCKS)
+        assert got == 900
+
+    def test_below_line_descending_but_no_prediction_follows(self):
+        got = select_target((900, 700), vy=10, predicted_x=None, blocks_line_y=self.BLOCKS)
+        assert got == 900
+
+    def test_exactly_on_line_counts_as_below(self):
+        got = select_target((900, 640), vy=10, predicted_x=512, blocks_line_y=self.BLOCKS)
+        assert got == 512

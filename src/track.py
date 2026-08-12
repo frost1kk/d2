@@ -60,13 +60,15 @@ def predict_landing_x(
 class BootTracker:
     """Стейтфул-трекер: копит позиции сапога по кадрам, считает скорость и предсказание.
 
-    Скорость — разница последних двух валидных позиций (пиксели/кадр). Пропущенные
-    детекции (None) не рвут трекер: скорость сохраняется до следующей валидной позиции.
+    Скорость сглаживается EMA (экспоненциальное среднее), чтобы одиночные отскоки/дрожание
+    детекции не давали выбросов при экстраполяции. Пропущенные детекции (None) не рвут
+    трекер: скорость сохраняется до следующей валидной позиции.
     """
 
     x_left: float
     x_right: float
     y_platform: float
+    smoothing: float = 0.4  # вес свежего замера в EMA (0..1); меньше — сильнее сглаживание
     _prev: tuple[float, float] | None = None
     _vel: tuple[float, float] | None = None
     _last: tuple[float, float] | None = None
@@ -75,7 +77,13 @@ class BootTracker:
         """Добавить позицию сапога (или None при промахе). Вернуть предсказание x или None."""
         if pos is not None:
             if self._prev is not None:
-                self._vel = (pos[0] - self._prev[0], pos[1] - self._prev[1])
+                inst = (pos[0] - self._prev[0], pos[1] - self._prev[1])
+                if self._vel is None:
+                    self._vel = inst
+                else:
+                    a = self.smoothing
+                    self._vel = (a * inst[0] + (1 - a) * self._vel[0],
+                                 a * inst[1] + (1 - a) * self._vel[1])
             self._prev = pos
             self._last = pos
         return self.predict()
@@ -88,6 +96,16 @@ class BootTracker:
             self._last[0], self._last[1], self._vel[0], self._vel[1],
             self.x_left, self.x_right, self.y_platform,
         )
+
+    @property
+    def last(self) -> tuple[float, float] | None:
+        """Последняя валидная позиция сапога (x, y) или None."""
+        return self._last
+
+    @property
+    def vy(self) -> float | None:
+        """Вертикальная скорость (px/кадр) или None, если ещё не определена."""
+        return None if self._vel is None else self._vel[1]
 
     def reset(self) -> None:
         """Сбросить состояние (новый запуск сапога / новый уровень)."""
