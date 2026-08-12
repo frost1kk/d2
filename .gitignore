@@ -23,6 +23,7 @@ debug/*.png
 debug/*.jpg
 debug/*.mp4
 debug/patches/
+debug/record/
 # производные разметки детекции — не коммитим, только исходные кадры
 assets/frames/*.overlay.png
 *.log
