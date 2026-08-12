@@ -1,0 +1,9 @@
+# Рантайм бота
+dxcam            # быстрый DXGI-захват экрана (Windows)
+opencv-python    # компьютерное зрение: детекция сапога/тележки/поля
+numpy            # массивы кадров
+pydirectinput    # эмуляция ввода в игру (SendInput)
+keyboard         # опционально: глобальный kill-switch (F12); без него — Ctrl+C
+
+# Разработка
+pytest           # юнит-тесты чистой логики (track/control)
