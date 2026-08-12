@@ -46,19 +46,33 @@ class Detection:
     area: float
 
 
-def detect_field(frame: np.ndarray) -> FieldROI:
-    """Область поля по соотношениям из config (первый прикид).
+def _scale_x(px: int, w: int) -> int:
+    return int(px * w / config.REF_W)
 
-    TODO(валидация): заменить на детекцию по золотым колоннам, если соотношения
-    «поплывут» на реальном разрешении захвата.
+
+def _scale_y(px: int, h: int) -> int:
+    return int(px * h / config.REF_H)
+
+
+def detect_field(frame: np.ndarray) -> FieldROI:
+    """Область поля по измеренным абсолютным пикселям, масштабированным под кадр.
+
+    Геометрия снята с реального захвата 1920×1080 (колонны, HUD). При другом размере
+    кадра координаты пропорционально масштабируются.
     """
     h, w = frame.shape[:2]
     return FieldROI(
-        left=int(w * config.FIELD_LEFT_RATIO),
-        top=int(h * config.FIELD_TOP_RATIO),
-        right=int(w * config.FIELD_RIGHT_RATIO),
-        bottom=int(h * config.FIELD_BOTTOM_RATIO),
+        left=_scale_x(config.FIELD_LEFT_PX, w),
+        top=_scale_y(config.FIELD_TOP_PX, h),
+        right=_scale_x(config.FIELD_RIGHT_PX, w),
+        bottom=_scale_y(config.FIELD_BOTTOM_PX, h),
     )
+
+
+def _cart_band_top(frame: np.ndarray, field: FieldROI) -> int:
+    """Верхняя граница полосы тележки (абс. px из config, масштаб под кадр)."""
+    h = frame.shape[0]
+    return max(field.top, _scale_y(config.CART_BAND_TOP_PX, h))
 
 
 def _largest_blob(mask: np.ndarray, min_area: float) -> Detection | None:
@@ -78,8 +92,7 @@ def _largest_blob(mask: np.ndarray, min_area: float) -> Detection | None:
 
 def detect_cart(frame_bgr: np.ndarray, field: FieldROI) -> Detection | None:
     """Тележка по красному баннеру в нижней полосе поля. Координаты — в кадре."""
-    h = frame_bgr.shape[0]
-    band_top = max(field.top, int(h * config.CART_BAND_TOP_RATIO))
+    band_top = _cart_band_top(frame_bgr, field)
     roi = frame_bgr[band_top:field.bottom, field.left:field.right]
     if roi.size == 0:
         return None
@@ -94,8 +107,7 @@ def detect_cart(frame_bgr: np.ndarray, field: FieldROI) -> Detection | None:
 
 def detect_boot(frame_bgr: np.ndarray, field: FieldROI) -> Detection | None:
     """Сапог в полёте по бирюзовому блику в поле (выше полосы тележки)."""
-    h = frame_bgr.shape[0]
-    band_top = max(field.top, int(h * config.CART_BAND_TOP_RATIO))
+    band_top = _cart_band_top(frame_bgr, field)
     roi = frame_bgr[field.top:band_top, field.left:field.right]
     if roi.size == 0:
         return None

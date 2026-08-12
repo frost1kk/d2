@@ -40,11 +40,11 @@ def run() -> None:
     controller = Controller(deadzone=config.CONTROL_DEADZONE_PX)
     is_killed = _make_kill_switch()
 
-    # Инициализируем геометрию по первому кадру.
+    # Инициализируем геометрию по первому кадру. Линию платформы уточняем по тележке
+    # в каждом кадре (см. ниже); стартовое значение — низ поля.
     frame = cam.grab_blocking()
     field = detect.detect_field(frame)
-    platform_line = field.bottom  # линия, на которой ловим сапог (низ поля)
-    tracker = BootTracker(x_left=field.left, x_right=field.right, y_platform=platform_line)
+    tracker = BootTracker(x_left=field.left, x_right=field.right, y_platform=field.bottom)
 
     loop_ms = 0.0
     with PlatformInput() as pinput:
@@ -58,6 +58,10 @@ def run() -> None:
 
                 cart = detect.detect_cart(frame, field)
                 boot = detect.detect_boot(frame, field)
+
+                # Ловим сапог на уровне тележки, а не у низа поля.
+                if cart is not None:
+                    tracker.y_platform = cart.y
 
                 boot_pos = (boot.x, boot.y) if boot else None
                 target_x = tracker.update(boot_pos)

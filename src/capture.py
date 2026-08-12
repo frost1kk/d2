@@ -42,9 +42,16 @@ class Capturer:
         raise RuntimeError("dxcam не вернул кадр — проверь регион/монитор/драйвер")
 
 
-def _save_frame(path: str) -> None:
+def _save_frame(path: str, delay: float) -> None:
+    import time
+
     import cv2
 
+    if delay > 0:
+        # Игра встаёт на паузу без фокуса окна. Пауза даёт время кликнуть по игре,
+        # чтобы поймать ЖИВОЙ кадр (напр. сапог в полёте), а не замороженный.
+        print(f"Верни фокус игре — захват через {delay:.0f} с…")
+        time.sleep(delay)
     cam = Capturer()
     frame = cam.grab_blocking()
     cv2.imwrite(path, frame)
@@ -54,9 +61,11 @@ def _save_frame(path: str) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Захват кадра игры (dxcam)")
     parser.add_argument("--save", metavar="PATH", help="сохранить один кадр в PNG и выйти")
+    parser.add_argument("--delay", type=float, default=0.0,
+                        help="пауза перед захватом, с (чтобы вернуть фокус игре)")
     args = parser.parse_args(argv)
     if args.save:
-        _save_frame(args.save)
+        _save_frame(args.save, args.delay)
         return 0
     parser.print_help()
     return 0
