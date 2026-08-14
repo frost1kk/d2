@@ -124,6 +124,8 @@ def run(auto_launch: bool = True, delay: float = 0.0, log_path: str | None = Non
 
     recent_y: deque[float] = deque(maxlen=config.FLIGHT_WINDOW)
     miss_count = 0          # подряд кадров без сапога
+    aim_spaces = 0          # нажатий пробела в текущем «зависании» (защита от спама)
+    aim_warned = False
     last_space = 0.0        # perf_counter последнего нажатия пробела (кулдаун)
     state = "LOST"
     frames_seen = 0
@@ -133,15 +135,17 @@ def run(auto_launch: bool = True, delay: float = 0.0, log_path: str | None = Non
     if log:
         log.write("frame,state,boot_x,boot_y,cart_x,target,direction,loop_ms\n")
 
-    def maybe_space() -> None:
-        """Нажать пробел, если прошёл кулдаун (запуск/проход экранов). Только при auto_launch."""
+    def maybe_space() -> bool:
+        """Нажать пробел, если прошёл кулдаун (запуск/проход экранов). Вернуть, нажали ли."""
         nonlocal last_space
         if not auto_launch:
-            return
+            return False
         now = time.perf_counter()
         if now - last_space >= config.LAUNCH_COOLDOWN_S:
             pinput.launch()
             last_space = now
+            return True
+        return False
 
     with PlatformInput() as pinput:
         try:
@@ -160,12 +164,14 @@ def run(auto_launch: bool = True, delay: float = 0.0, log_path: str | None = Non
                     miss_count = 0
                     recent_y.append(boot.y)
                     in_flight = (
-                        len(recent_y) == recent_y.maxlen
+                        len(recent_y) >= config.MIN_FLIGHT_POINTS
                         and (max(recent_y) - min(recent_y)) > config.FLIGHT_Y_RANGE_PX
                     )
                     if in_flight:
                         # Сапог летит → ловим (follow-x).
                         state = "PLAY"
+                        aim_spaces = 0
+                        aim_warned = False
                         if cart is not None:
                             tracker.y_platform = cart.y
                         tracker.update((boot.x, boot.y))
@@ -178,11 +184,18 @@ def run(auto_launch: bool = True, delay: float = 0.0, log_path: str | None = Non
                             direction = controller.decide(cart.x, target)
                             pinput.apply(direction)
                     else:
-                        # Сапог висит (пред-пуск/прицел) → запускаем пробелом, тележку не двигаем.
+                        # Сапог «висит» → пробуем запустить пробелом (ограниченно). Если не полетел
+                        # после AIM_MAX_SPACES — это ложная детекция фона, перестаём жать.
                         state = "AIM"
                         pinput.apply(STAY)
                         tracker.reset()
-                        maybe_space()
+                        if aim_spaces < config.AIM_MAX_SPACES:
+                            if maybe_space():
+                                aim_spaces += 1
+                        elif not aim_warned:
+                            print(f"⚠ сапог «висит» на ({boot.x:.0f},{boot.y:.0f}) и не запускается "
+                                  f"после {config.AIM_MAX_SPACES} нажатий — вероятно, ложная детекция.")
+                            aim_warned = True
                 else:
                     miss_count += 1
                     pinput.apply(STAY)
@@ -191,6 +204,8 @@ def run(auto_launch: bool = True, delay: float = 0.0, log_path: str | None = Non
                         state = "LOST"
                         recent_y.clear()
                         tracker.reset()
+                        aim_spaces = 0
+                        aim_warned = False
                         maybe_space()
                     else:
                         # Краткий пропуск (сапог нырнул к тележке) — держим, НЕ чистим окно,
