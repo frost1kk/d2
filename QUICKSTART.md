@@ -101,4 +101,4 @@ python -m pytest -q
 ---
 
 Готово. Подробнее об устройстве бота — в [README.md](README.md), [LOGIC.md](LOGIC.md) и
-[ARCHITECTURE.md](ARCHITECTURE.md). Помните про [дисклеймер](README.md#️-дисклеймер-обязательно-к-прочтению).
+[ARCHITECTURE.md](ARCHITECTURE.md).
