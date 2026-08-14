@@ -108,7 +108,7 @@ Python · OpenCV · NumPy · dxcam (DXGI screen capture) · pydirectinput (SendI
 
 ## 📄 Лицензия
 
-MIT (при наличии файла `LICENSE`). Проект не аффилирован с Valve Corporation. Dota 2, Dark Carnival, Crownfall — товарные знаки Valve.
+Проект распространяется по лицензии **MIT** — см. [LICENSE](LICENSE). Не аффилирован с Valve Corporation; Dota 2, Dark Carnival, Crownfall — товарные знаки Valve.
 
 ---
 
