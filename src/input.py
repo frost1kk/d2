@@ -47,6 +47,13 @@ class PlatformInput:
         time.sleep(hold)
         self._pdi.keyUp(key)
 
+    def hold(self, key: str, seconds: float) -> None:
+        """Удерживать клавишу seconds секунд (для калибровки движения тележки)."""
+        self._release()
+        self._pdi.keyDown(key)
+        time.sleep(seconds)
+        self._pdi.keyUp(key)
+
     def launch(self) -> None:
         """Пуск/подтверждение (пробел) с удержанием."""
         self.tap(config.KEY_LAUNCH)
