@@ -1,9 +1,13 @@
 """Управляющий цикл бота: захват → детекция → трекинг → решение → ввод (A/D).
 
-Конечный автомат с учётом стартовой секвенции мини-игры:
-    SETUP  — сапог не в полёте. При --auto-launch выполняется пуск:
-             пробел (подтвердить старт) → пауза → пробел (запуск, направление по умолчанию).
-    PLAYING — сапог в полёте: ловля (follow-x).
+Единая модель состояний (по кадру), надёжна для всех уровней и переходов между ними:
+    PLAY — сапог ЛЕТИТ (большой разброс y за окно) → ловим (follow-x).
+    AIM  — сапог ВИСИТ в пред-пуске/прицеле (y почти постоянна) → жмём пробел (запуск),
+           тележку не двигаем (чтобы не сбивать прицел).
+    LOST — сапога нет (меню/переход между уровнями) → после дебаунса жмём пробел (проходим).
+Нажатия пробела — с кулдауном LAUNCH_COOLDOWN_S (без спама). Так один и тот же механизм
+проходит старт, пред-пуск, потерю мяча и экраны «уровень пройден → новый пуск».
+При --manual пробел не жмётся: бот только ловит летящий сапог.
 
 ⚠️ Управление перехватывает клавиатуру. Держи игру в фокусе. Аварийный стоп — F12
 (нужен пакет keyboard) или Ctrl+C; при любом выходе клавиши отпускаются (§10 CLAUDE.md).
@@ -116,8 +120,12 @@ def run(auto_launch: bool = True, delay: float = 0.0, log_path: str | None = Non
     blocks_line = detect.blocks_line_y(frame)
     tracker = BootTracker(x_left=field.left, x_right=field.right, y_platform=field.bottom)
 
-    state = "SETUP"
-    miss_count = 0  # подряд кадров без сапога (дебаунс потери мяча)
+    from collections import deque
+
+    recent_y: deque[float] = deque(maxlen=config.FLIGHT_WINDOW)
+    miss_count = 0          # подряд кадров без сапога
+    last_space = 0.0        # perf_counter последнего нажатия пробела (кулдаун)
+    state = "LOST"
     frames_seen = 0
     loop_ms_acc = 0.0
     last_ms = 0.0
@@ -125,13 +133,18 @@ def run(auto_launch: bool = True, delay: float = 0.0, log_path: str | None = Non
     if log:
         log.write("frame,state,boot_x,boot_y,cart_x,target,direction,loop_ms\n")
 
+    def maybe_space() -> None:
+        """Нажать пробел, если прошёл кулдаун (запуск/проход экранов). Только при auto_launch."""
+        nonlocal last_space
+        if not auto_launch:
+            return
+        now = time.perf_counter()
+        if now - last_space >= config.LAUNCH_COOLDOWN_S:
+            pinput.launch()
+            last_space = now
+
     with PlatformInput() as pinput:
         try:
-            if auto_launch:
-                print("Автозапуск сапога…")
-                _launch_sequence(pinput)
-                state = "PLAYING"
-
             while not is_killed():
                 t0 = time.perf_counter()
                 frame = cam.grab()
@@ -144,32 +157,45 @@ def run(auto_launch: bool = True, delay: float = 0.0, log_path: str | None = Non
                 direction = STAY
 
                 if boot is not None:
-                    state = "PLAYING"
                     miss_count = 0
-                    if cart is not None:
-                        tracker.y_platform = cart.y
-                    tracker.update((boot.x, boot.y))
-                    predicted = tracker.predict() if config.USE_LANDING_PREDICTION else None
-                    target = select_target(
-                        (boot.x, boot.y), tracker.vy, predicted,
-                        blocks_line, config.MAX_PREDICT_SHIFT_PX,
+                    recent_y.append(boot.y)
+                    in_flight = (
+                        len(recent_y) == recent_y.maxlen
+                        and (max(recent_y) - min(recent_y)) > config.FLIGHT_Y_RANGE_PX
                     )
-                    if cart is not None:
-                        direction = controller.decide(cart.x, target)
-                        pinput.apply(direction)
+                    if in_flight:
+                        # Сапог летит → ловим (follow-x).
+                        state = "PLAY"
+                        if cart is not None:
+                            tracker.y_platform = cart.y
+                        tracker.update((boot.x, boot.y))
+                        predicted = tracker.predict() if config.USE_LANDING_PREDICTION else None
+                        target = select_target(
+                            (boot.x, boot.y), tracker.vy, predicted,
+                            blocks_line, config.MAX_PREDICT_SHIFT_PX,
+                        )
+                        if cart is not None:
+                            direction = controller.decide(cart.x, target)
+                            pinput.apply(direction)
+                    else:
+                        # Сапог висит (пред-пуск/прицел) → запускаем пробелом, тележку не двигаем.
+                        state = "AIM"
+                        pinput.apply(STAY)
+                        tracker.reset()
+                        maybe_space()
                 else:
+                    miss_count += 1
                     pinput.apply(STAY)
-                    if state == "PLAYING":
-                        miss_count += 1
-                        # Перезапуск ТОЛЬКО после устойчивого отсутствия сапога (дебаунс) —
-                        # иначе кратковременный пропуск детекции у тележки спамит пуск.
-                        if miss_count >= config.BALL_LOST_FRAMES:
-                            state = "SETUP"
-                            tracker.reset()
-                            miss_count = 0
-                            if auto_launch and not is_killed():
-                                _launch_sequence(pinput)
-                                state = "PLAYING"
+                    if miss_count >= config.BALL_LOST_FRAMES:
+                        # Устойчивое отсутствие = меню/переход между уровнями → проходим пробелом.
+                        state = "LOST"
+                        recent_y.clear()
+                        tracker.reset()
+                        maybe_space()
+                    else:
+                        # Краткий пропуск (сапог нырнул к тележке) — держим, НЕ чистим окно,
+                        # чтобы полёт продолжил ловиться сразу после появления сапога.
+                        state = "MISS"
 
                 last_ms = (time.perf_counter() - t0) * 1000.0
                 loop_ms_acc += last_ms
