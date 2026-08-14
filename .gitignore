@@ -1,3 +1,9 @@
+# Внутренние рабочие файлы (не в публичном репо; остаются на диске локально)
+CLAUDE.md
+BACKLOG.md
+ROADMAP.md
+skills/
+
 # Python
 __pycache__/
 *.py[cod]
