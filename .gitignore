@@ -24,6 +24,8 @@ debug/*.jpg
 debug/*.mp4
 debug/patches/
 debug/record/
+# scratch-логи сессий; эталон сохраняём в samples/
+debug/*.csv
 # производные разметки детекции — не коммитим, только исходные кадры
 assets/frames/*.overlay.png
 *.log
