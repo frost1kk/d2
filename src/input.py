@@ -1,13 +1,16 @@
 """Эмуляция ввода в игру: движение платформы (pydirectinput/SendInput).
 
-⚠️ НЕ валидировано вживую. Обычный pyautogui игра на Source 2 часто игнорирует — используем
-pydirectinput (SendInput). Направление: -1 влево, 0 стоять, +1 вправо (совпадает с control).
+⚠️ Обычный pyautogui игра на Source 2 часто игнорирует — используем pydirectinput (SendInput).
+Направление: -1 влево (A), 0 стоять, +1 вправо (D) — совпадает с control.
 
-Реализация «удержание»: держим нажатой стрелку, пока цель в одной стороне, отпускаем при
-смене направления/стопе. Это плавнее, чем частые тапы.
+Движение: держим клавишу, пока цель в одной стороне (плавнее частых тапов).
+Пуск/подтверждение (пробел): нажатие с УДЕРЖАНИЕМ ~KEY_TAP_HOLD_S — мгновенный keyDown/keyUp
+игра нередко не успевает считать.
 """
 
 from __future__ import annotations
+
+import time
 
 from . import config
 from .control import LEFT, RIGHT, STAY
@@ -37,9 +40,16 @@ class PlatformInput:
             self._pdi.keyDown(want)
             self._held = want
 
+    def tap(self, key: str, hold: float | None = None) -> None:
+        """Нажать клавишу с удержанием hold секунд (по умолчанию KEY_TAP_HOLD_S)."""
+        hold = config.KEY_TAP_HOLD_S if hold is None else hold
+        self._pdi.keyDown(key)
+        time.sleep(hold)
+        self._pdi.keyUp(key)
+
     def launch(self) -> None:
-        """Запустить сапог (пробел)."""
-        self._pdi.press(config.KEY_LAUNCH)
+        """Пуск/подтверждение (пробел) с удержанием."""
+        self.tap(config.KEY_LAUNCH)
 
     def _release(self) -> None:
         if self._held is not None:

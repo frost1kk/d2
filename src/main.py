@@ -2,9 +2,8 @@
 
 Конечный автомат с учётом стартовой секвенции мини-игры:
     SETUP  — сапог не в полёте. При --auto-launch выполняется пуск:
-             центровка тележки (A/D) → пробел (фиксация позиции) →
-             пробел (подтверждение направления) → сапог летит.
-    PLAYING — сапог в полёте: двухрежимная ловля (следовать вверху / точный прицел на спуске).
+             пробел (подтвердить старт) → пауза → пробел (запуск, направление по умолчанию).
+    PLAYING — сапог в полёте: ловля (follow-x).
 
 ⚠️ Управление перехватывает клавиатуру. Держи игру в фокусе. Аварийный стоп — F12
 (нужен пакет keyboard) или Ctrl+C; при любом выходе клавиши отпускаются (§10 CLAUDE.md).
@@ -12,6 +11,7 @@
 Запуск:
     python -m src.main               # автозапуск сапога включён
     python -m src.main --manual      # пуск руками, бот только ловит
+    python -m src.main --test-launch # прогнать ТОЛЬКО секвенцию пуска и выйти (подбор пауз)
     python -m src.main --delay 3     # пауза перед стартом (сделать игру активной)
 """
 
@@ -43,30 +43,14 @@ def _make_kill_switch():
         return lambda: False
 
 
-def _center_cart(cam: Capturer, field, pinput: PlatformInput, controller: Controller) -> None:
-    """Фаза позиции: подвести тележку к центру поля через A/D (предохранитель по шагам)."""
-    for _ in range(config.LAUNCH_MAX_MOVE_STEPS):
-        frame = cam.grab()
-        if frame is None:
-            continue
-        cart = detect.detect_cart(frame, field)
-        if cart is None:
-            break
-        direction = controller.decide(cart.x, field.center_x)
-        if direction == STAY:
-            break
-        pinput.apply(direction)
-        time.sleep(config.LAUNCH_MOVE_STEP_S)
-    pinput.apply(STAY)
-
-
-def _launch_sequence(cam: Capturer, field, pinput: PlatformInput, controller: Controller) -> None:
-    """Стартовая секвенция: позиция → пробел → направление(по умолчанию) → пробел."""
-    _center_cart(cam, field, pinput, controller)
-    pinput.launch()  # зафиксировать позицию
-    time.sleep(config.LAUNCH_STEP_PAUSE_S)
-    pinput.launch()  # подтвердить направление пуска (значение по умолчанию)
-    time.sleep(config.LAUNCH_STEP_PAUSE_S)
+def _launch_sequence(pinput: PlatformInput) -> None:
+    """Стартовая секвенция: пробел (подтвердить старт) → пауза → пробел (запуск)."""
+    print("  пуск: пробел (подтвердить старт)")
+    pinput.launch()
+    time.sleep(config.LAUNCH_CONFIRM_PAUSE_S)
+    print("  пуск: пробел (запуск)")
+    pinput.launch()
+    time.sleep(config.LAUNCH_AFTER_PAUSE_S)
 
 
 def run(auto_launch: bool = True, delay: float = 0.0) -> None:
@@ -91,8 +75,8 @@ def run(auto_launch: bool = True, delay: float = 0.0) -> None:
     with PlatformInput() as pinput:
         try:
             if auto_launch:
-                print("Автозапуск: центрирую тележку и запускаю сапог…")
-                _launch_sequence(cam, field, pinput, controller)
+                print("Автозапуск сапога…")
+                _launch_sequence(pinput)
                 state = "PLAYING"
 
             while not is_killed():
@@ -123,8 +107,7 @@ def run(auto_launch: bool = True, delay: float = 0.0) -> None:
                         state = "SETUP"
                         tracker.reset()
                         if auto_launch and not is_killed():
-                            time.sleep(config.LAUNCH_STEP_PAUSE_S)
-                            _launch_sequence(cam, field, pinput, controller)
+                            _launch_sequence(pinput)
                             state = "PLAYING"
 
                 last_ms = (time.perf_counter() - t0) * 1000.0
@@ -141,13 +124,29 @@ def run(auto_launch: bool = True, delay: float = 0.0) -> None:
             print(f"Последний замер цикла: {last_ms:.1f} мс")
 
 
+def test_launch(delay: float) -> None:
+    """Прогнать ТОЛЬКО секвенцию пуска и выйти — для подбора пауз/удержания вживую."""
+    if delay > 0:
+        print(f"Старт через {delay:.0f} с — сделай окно игры активным…")
+        time.sleep(delay)
+    with PlatformInput() as pinput:
+        print("Тест секвенции пуска:")
+        _launch_sequence(pinput)
+    print("Готово. Если сапог не полетел — правь LAUNCH_*_PAUSE_S / KEY_TAP_HOLD_S в config.py.")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Бот мини-игры «Сапожный снос»")
     parser.add_argument("--manual", action="store_true",
                         help="не запускать сапог автоматически (пуск руками, бот только ловит)")
+    parser.add_argument("--test-launch", action="store_true",
+                        help="прогнать только секвенцию пуска и выйти (подбор пауз)")
     parser.add_argument("--delay", type=float, default=2.0,
                         help="пауза перед стартом, с (сделать игру активной); по умолчанию 2")
     args = parser.parse_args(argv)
+    if args.test_launch:
+        test_launch(args.delay)
+        return 0
     run(auto_launch=not args.manual, delay=args.delay)
     return 0
 
