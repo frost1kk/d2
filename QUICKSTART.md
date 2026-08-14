@@ -60,6 +60,7 @@ python -m src.main
 | `python -m src.main --calibrate` | Проверить направление и скорость тележки (нажмёт D, затем A). |
 | `python -m src.main --test-launch` | Прогнать только секвенцию запуска сапога (подбор таймингов). |
 | `python -m src.main --log run.csv` | Записать CSV-лог сессии для диагностики. |
+| `python -m src.main --sweep` | Режим сбора данных (ветка v2): варьирует смещение точки касания, пишет в `debug/sweep.csv`. |
 
 ## 6. Если что-то идёт не так
 

@@ -106,7 +106,8 @@ def calibrate(delay: float, hold: float = 0.4) -> None:
             print("❗ тележка почти не сдвинулась — клавиши не доходят до игры или экран не тот")
 
 
-def run(auto_launch: bool = True, delay: float = 0.0, log_path: str | None = None) -> None:
+def run(auto_launch: bool = True, delay: float = 0.0, log_path: str | None = None,
+        sweep: bool = False) -> None:
     if delay > 0:
         print(f"Старт через {delay:.0f} с — сделай окно игры активным…")
         time.sleep(delay)
@@ -118,6 +119,7 @@ def run(auto_launch: bool = True, delay: float = 0.0, log_path: str | None = Non
     frame = cam.grab_blocking()
     field = detect.detect_field(frame)
     blocks_line = detect.blocks_line_y(frame)
+    sweep_arm_y = detect._scale_y(config.SWEEP_ARM_Y_PX, frame.shape[0])
     tracker = BootTracker(x_left=field.left, x_right=field.right, y_platform=field.bottom)
 
     from collections import deque
@@ -131,9 +133,16 @@ def run(auto_launch: bool = True, delay: float = 0.0, log_path: str | None = Non
     frames_seen = 0
     loop_ms_acc = 0.0
     last_ms = 0.0
+    # --- состояние свипа ---
+    sweep_idx = -1          # первый заход выберет SWEEP_OFFSETS[0]
+    commanded_offset = 0    # до первого захода — нейтрально
+    sweep_armed = False     # сапог заходит на касание (спускается в зоне тележки)
+    last_present_y: float | None = None
+    if sweep:
+        print(f"РЕЖИМ СВИПА: смещения {config.SWEEP_OFFSETS} px, перебор по касаниям.")
     log = open(log_path, "w", encoding="utf-8") if log_path else None
     if log:
-        log.write("frame,state,boot_x,boot_y,cart_x,target,direction,loop_ms\n")
+        log.write("frame,state,boot_x,boot_y,cart_x,target,direction,commanded_offset,loop_ms\n")
 
     def maybe_space() -> bool:
         """Нажать пробел, если прошёл кулдаун (запуск/проход экранов). Вернуть, нажали ли."""
@@ -161,6 +170,8 @@ def run(auto_launch: bool = True, delay: float = 0.0, log_path: str | None = Non
                 direction = STAY
 
                 if boot is not None:
+                    prev_y = last_present_y
+                    last_present_y = boot.y
                     miss_count = 0
                     recent_y.append(boot.y)
                     in_flight = (
@@ -175,11 +186,25 @@ def run(auto_launch: bool = True, delay: float = 0.0, log_path: str | None = Non
                         if cart is not None:
                             tracker.y_platform = cart.y
                         tracker.update((boot.x, boot.y))
+                        # Свип: на заходе в зону касания (начало спуска) выбираем следующее
+                        # смещение — оно держится весь спуск и контакт; на подъёме разоружаем.
+                        if sweep and prev_y is not None:
+                            vy = boot.y - prev_y
+                            if not sweep_armed and vy > 0 and boot.y > sweep_arm_y:
+                                sweep_idx = (sweep_idx + 1) % len(config.SWEEP_OFFSETS)
+                                commanded_offset = config.SWEEP_OFFSETS[sweep_idx]
+                                sweep_armed = True
+                            elif sweep_armed and vy < 0:
+                                sweep_armed = False
                         predicted = tracker.predict() if config.USE_LANDING_PREDICTION else None
-                        target = select_target(
-                            (boot.x, boot.y), tracker.vy, predicted,
-                            blocks_line, config.MAX_PREDICT_SHIFT_PX,
-                        )
+                        if sweep:
+                            # Ставим тележку со смещением: цель = boot.x − смещение (в пределах поля).
+                            target = max(field.left, min(field.right, boot.x - commanded_offset))
+                        else:
+                            target = select_target(
+                                (boot.x, boot.y), tracker.vy, predicted,
+                                blocks_line, config.MAX_PREDICT_SHIFT_PX,
+                            )
                         if cart is not None:
                             direction = controller.decide(cart.x, target)
                             pinput.apply(direction)
@@ -206,6 +231,8 @@ def run(auto_launch: bool = True, delay: float = 0.0, log_path: str | None = Non
                         tracker.reset()
                         aim_spaces = 0
                         aim_warned = False
+                        last_present_y = None
+                        sweep_armed = False
                         maybe_space()
                     else:
                         # Краткий пропуск (сапог нырнул к тележке) — держим, НЕ чистим окно,
@@ -220,7 +247,8 @@ def run(auto_launch: bool = True, delay: float = 0.0, log_path: str | None = Non
                     by = f"{boot.y:.0f}" if boot else ""
                     cx = f"{cart.x:.0f}" if cart else ""
                     tg = f"{target:.0f}" if target is not None else ""
-                    log.write(f"{frames_seen},{state},{bx},{by},{cx},{tg},{direction},{last_ms:.1f}\n")
+                    co = f"{commanded_offset:+d}" if sweep else ""
+                    log.write(f"{frames_seen},{state},{bx},{by},{cx},{tg},{direction},{co},{last_ms:.1f}\n")
                 if frames_seen % 120 == 0:
                     avg = loop_ms_acc / 120
                     print(f"[{state}] средний цикл {avg:.1f} мс (~{1000/avg:.0f} к/с)")
@@ -256,6 +284,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="проверить направление и скорость тележки (нажать D, затем A)")
     parser.add_argument("--log", metavar="PATH",
                         help="писать CSV-лог сессии (boot/cart/target/direction/latency) для диагностики")
+    parser.add_argument("--sweep", action="store_true",
+                        help="режим сбора данных: намеренно варьировать смещение точки касания "
+                             "(нужен --log для анализа)")
     parser.add_argument("--delay", type=float, default=2.0,
                         help="пауза перед стартом, с (сделать игру активной); по умолчанию 2")
     args = parser.parse_args(argv)
@@ -265,7 +296,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.calibrate:
         calibrate(args.delay)
         return 0
-    run(auto_launch=not args.manual, delay=args.delay, log_path=args.log)
+    if args.sweep and not args.log:
+        args.log = "debug/sweep.csv"
+        print("(--sweep без --log: пишу в debug/sweep.csv)")
+    run(auto_launch=not args.manual, delay=args.delay, log_path=args.log, sweep=args.sweep)
     return 0
 
 
