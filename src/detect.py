@@ -92,19 +92,26 @@ def _mask_centroid(mask: np.ndarray, min_pixels: int) -> Detection | None:
     return Detection(x=float(xs.mean()), y=float(ys.mean()), area=float(len(xs)))
 
 
-def _largest_blob(mask: np.ndarray, min_area: float) -> Detection | None:
-    """Центр крупнейшего контура в маске, если его площадь >= min_area."""
+def _largest_blob(
+    mask: np.ndarray, min_area: float, max_area: float = float("inf")
+) -> Detection | None:
+    """Центр крупнейшего контура с площадью в [min_area, max_area]."""
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours:
+    best = None
+    best_area = -1.0
+    for c in contours:
+        area = cv2.contourArea(c)
+        if area < min_area or area > max_area:
+            continue
+        if area > best_area:
+            best_area = area
+            best = c
+    if best is None:
         return None
-    c = max(contours, key=cv2.contourArea)
-    area = cv2.contourArea(c)
-    if area < min_area:
-        return None
-    m = cv2.moments(c)
+    m = cv2.moments(best)
     if m["m00"] == 0:
         return None
-    return Detection(x=m["m10"] / m["m00"], y=m["m01"] / m["m00"], area=area)
+    return Detection(x=m["m10"] / m["m00"], y=m["m01"] / m["m00"], area=best_area)
 
 
 def detect_cart(frame_bgr: np.ndarray, field: FieldROI) -> Detection | None:
@@ -138,7 +145,8 @@ def detect_boot(frame_bgr: np.ndarray, field: FieldROI) -> Detection | None:
         return None
     hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
     mask = cv2.inRange(hsv, np.array(config.BOOT_TEAL_LOW), np.array(config.BOOT_TEAL_HIGH))
-    det = _largest_blob(mask, config.MIN_BOOT_AREA)
+    # Диапазон площади: отсекает крупные бирюзовые блоки уровня 2+ (не сапог).
+    det = _largest_blob(mask, config.MIN_BOOT_AREA, config.MAX_BOOT_AREA)
     if det is None:
         return None
     return Detection(x=det.x + field.left, y=det.y + field.top, area=det.area)

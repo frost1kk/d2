@@ -66,3 +66,13 @@ class TestPrelaunchFrame:
         field = detect.detect_field(frame)
         cart = detect.detect_cart(frame, field)
         assert cart is not None
+
+
+class TestLevel2Frame:
+    """Уровень 2 вводит БИРЮЗОВЫЕ блоки (854 px) — не должны ловиться как сапог (16..90 px)."""
+
+    def test_teal_blocks_not_detected_as_boot(self):
+        frame = _load("level2.png")
+        field = detect.detect_field(frame)
+        # Экран выбора позиции ур.2: летящего сапога нет, крупные бирюзовые блоки отсеяны.
+        assert detect.detect_boot(frame, field) is None
