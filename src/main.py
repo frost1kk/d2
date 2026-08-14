@@ -117,6 +117,7 @@ def run(auto_launch: bool = True, delay: float = 0.0, log_path: str | None = Non
     tracker = BootTracker(x_left=field.left, x_right=field.right, y_platform=field.bottom)
 
     state = "SETUP"
+    miss_count = 0  # подряд кадров без сапога (дебаунс потери мяча)
     frames_seen = 0
     loop_ms_acc = 0.0
     last_ms = 0.0
@@ -144,6 +145,7 @@ def run(auto_launch: bool = True, delay: float = 0.0, log_path: str | None = Non
 
                 if boot is not None:
                     state = "PLAYING"
+                    miss_count = 0
                     if cart is not None:
                         tracker.y_platform = cart.y
                     tracker.update((boot.x, boot.y))
@@ -158,12 +160,16 @@ def run(auto_launch: bool = True, delay: float = 0.0, log_path: str | None = Non
                 else:
                     pinput.apply(STAY)
                     if state == "PLAYING":
-                        # Сапог пропал → мяч закончился. Возврат в SETUP.
-                        state = "SETUP"
-                        tracker.reset()
-                        if auto_launch and not is_killed():
-                            _launch_sequence(pinput)
-                            state = "PLAYING"
+                        miss_count += 1
+                        # Перезапуск ТОЛЬКО после устойчивого отсутствия сапога (дебаунс) —
+                        # иначе кратковременный пропуск детекции у тележки спамит пуск.
+                        if miss_count >= config.BALL_LOST_FRAMES:
+                            state = "SETUP"
+                            tracker.reset()
+                            miss_count = 0
+                            if auto_launch and not is_killed():
+                                _launch_sequence(pinput)
+                                state = "PLAYING"
 
                 last_ms = (time.perf_counter() - t0) * 1000.0
                 loop_ms_acc += last_ms
